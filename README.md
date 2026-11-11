@@ -96,18 +96,3 @@ Import the Postman collection from the `postman` folder to test the API endpoint
 ## BillPort Service
 
 BillPort is a separate service that simulates an external billing system, including invoice creation, webhooks, and failure scenarios.
-
-
-
-## Pending Work
-
-The following features are yet to be completed:
-
-- Socket.IO real-time chat and notifications.
-- BillPort integration and invoice automation.
-- React frontend development and API integration.
-
-## What I Would Do With Another Day
-
-With another day, I would focus on completing the pending features, integrating the frontend with the backend APIs, and performing end-to-end testing of the complete application.
-
