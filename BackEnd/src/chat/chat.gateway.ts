@@ -1,4 +1,3 @@
-
 import {
     WebSocketGateway,
     WebSocketServer,
@@ -9,14 +8,13 @@ import {
     OnGatewayConnection,
     OnGatewayDisconnect,
 } from '@nestjs/websockets';
-
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-
 import { ChatService } from './chat.service.js';
 import { User, UserDocument } from '../users/schemas/user.schema.js';
+import { BadRequestException } from '@nestjs/common';
 
 @WebSocketGateway({
     cors: {
@@ -106,19 +104,31 @@ export class ChatGateway
     @SubscribeMessage('joinDealChat')
     async joinDealChat(
         @ConnectedSocket() client: Socket,
-        @MessageBody() data: { dealId: string },
+        @MessageBody() data: { dealId?: string } | string,
     ) {
         try {
             console.log('1. joinDealChat event received');
-            console.log('2. Deal ID:', data.dealId);
-            console.log('3. User:', client.data.user?.email);
+            console.log('2. Raw payload:', data);
+
+            // Handle both JSON object and string payloads
+            const payload =
+                typeof data === 'string'
+                    ? JSON.parse(data)
+                    : data;
+
+            const dealId = payload?.dealId;
+
+            console.log('3. Extracted Deal ID:', dealId);
+            console.log('4. User:', client.data.user?.email);
+
+            if (!dealId || typeof dealId !== 'string') {
+                throw new BadRequestException('Deal ID is required');
+            }
 
             const thread = await this.chatService.getOrCreateThread(
-                data.dealId,
+                dealId,
                 client.data.user,
             );
-
-            console.log('4. Thread created/fetched:', thread._id);
 
             await client.join(thread._id.toString());
 
@@ -126,17 +136,16 @@ export class ChatGateway
 
             client.emit('chat.joined', {
                 threadId: thread._id.toString(),
-                dealId: data.dealId,
+                dealId,
             });
 
         } catch (error: unknown) {
             console.error('JOIN CHAT ERROR:', error);
 
             client.emit('chat.error', {
-                message:
-                    error instanceof Error
-                        ? error.message
-                        : 'Failed to join chat',
+                message: error instanceof Error
+                    ? error.message
+                    : 'Failed to join chat',
             });
         }
     }
