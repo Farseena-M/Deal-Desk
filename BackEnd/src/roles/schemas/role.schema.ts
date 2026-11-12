@@ -33,6 +33,9 @@ export class Role {
     })
     dataScope: DataScope;
 
+    @Prop({ default: false })
+    isManager: boolean;
+
     @Prop({ default: true })
     isActive: boolean;
 }

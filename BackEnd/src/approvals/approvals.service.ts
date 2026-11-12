@@ -246,8 +246,6 @@ export class ApprovalsService {
             );
         }
 
-        const isAdmin = user.role.name === 'admin';
-
         if (request.requestedBy.toString() === user.id) {
             throw new ForbiddenException(
                 'You cannot approve your own request',
@@ -264,10 +262,7 @@ export class ApprovalsService {
         }
 
 
-        if (
-            currentStep.approverRole !== user.role.name &&
-            !isAdmin
-        ) {
+        if (currentStep.approverRole !== user.role.name) {
             throw new ForbiddenException(
                 'It is not your turn to approve this request',
             );
@@ -292,10 +287,10 @@ export class ApprovalsService {
         });
 
         if (dto.action === 'rejected') {
-            request.approvalChain[request.currentStep].status =
-                'rejected';
-
             request.status = 'rejected';
+
+            // Clear the pending approval chain
+            request.approvalChain = [];
 
             await request.save();
 
