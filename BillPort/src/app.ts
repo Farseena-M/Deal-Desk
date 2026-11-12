@@ -106,8 +106,7 @@ async function sendWebhook(
 
 
 async function scheduleWebhookEvents(externalId: string): Promise<void> {
-    const finalStatus: WebhookStatus =
-        Math.random() < 0.8 ? 'PAID' : 'FAILED';
+    const finalStatus: WebhookStatus = 'PAID';
 
     const statuses: WebhookStatus[] = [
         'SENT',

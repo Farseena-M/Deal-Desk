@@ -99,7 +99,13 @@ async function seedDatabase() {
         );
 
         // 3. Hash password
-        const hashedPassword = await bcrypt.hash('password123', 10);
+        const seedPassword = process.env.SEED_USER_PASSWORD;
+
+        if (!seedPassword) {
+            throw new Error('SEED_USER_PASSWORD is missing in .env');
+        }
+
+        const hashedPassword = await bcrypt.hash(seedPassword, 10);
 
         // 4. Create five users
         await User.insertMany([

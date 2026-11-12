@@ -18,6 +18,7 @@ import { Types } from 'mongoose';
 import type { AuthenticatedUser } from '../deals/interfaces/authenticatedUser.js';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 
 type BillPortStatus = 'SENT' | 'VIEWED' | 'PAID' | 'FAILED';
@@ -34,7 +35,8 @@ export class InvoicesService {
         @InjectModel(Deal.name)
         private readonly dealModel: Model<DealDocument>,
         @InjectQueue('invoice')
-        private readonly invoiceQueue: Queue
+        private readonly invoiceQueue: Queue,
+        private readonly notificationsService: NotificationsService
     ) { }
 
 
@@ -194,7 +196,15 @@ export class InvoicesService {
                 removeOnFail: false,
             },
         );
-
+        try {
+            await this.notificationsService.sendInvoiceNotification(
+                user.id,
+                invoice._id.toString(),
+                deal._id.toString(),
+            );
+        } catch (error) {
+            console.error('Invoice notification failed:', error);
+        }
         return invoice;
     }
 }

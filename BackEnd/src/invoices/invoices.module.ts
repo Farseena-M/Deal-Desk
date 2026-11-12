@@ -8,6 +8,7 @@ import { CustomersModule } from '../customers/customers.module.js';
 import { Deal, DealSchema } from '../deals/schemas/deal.schema.js';
 import { BullModule } from '@nestjs/bullmq';
 import { InvoiceProcessor } from './invoice.processor.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 @Module({
   imports: [
@@ -19,10 +20,11 @@ import { InvoiceProcessor } from './invoice.processor.js';
       { name: Customer.name, schema: CustomerSchema },
       { name: Deal.name, schema: DealSchema },
     ]),
-    CustomersModule
+    CustomersModule,
+    NotificationsModule
   ],
   controllers: [InvoicesController],
-  providers: [InvoicesService,InvoiceProcessor],
+  providers: [InvoicesService, InvoiceProcessor],
   exports: [InvoicesService],
 })
 export class InvoicesModule { }

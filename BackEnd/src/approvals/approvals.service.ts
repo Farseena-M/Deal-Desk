@@ -235,99 +235,112 @@ export class ApprovalsService {
         dto: ApprovalActionDto,
         user: any,
     ) {
-        const request = await this.requestModel.findOne({
-            _id: requestId,
-            status: 'pending',
-        });
+        const session = await this.requestModel.db.startSession();
 
-        if (!request) {
-            throw new NotFoundException(
-                'Pending approval request not found',
-            );
+        try {
+            const result = await session.withTransaction(async () => {
+
+                const request = await this.requestModel.findOne({
+                    _id: requestId,
+                    status: 'pending',
+                }).session(session);
+
+                if (!request) {
+                    throw new NotFoundException(
+                        'Pending approval request not found',
+                    );
+                }
+
+                if (request.requestedBy.toString() === user.id) {
+                    throw new ForbiddenException(
+                        'You cannot approve your own request',
+                    );
+                }
+
+                const currentStep =
+                    request.approvalChain[request.currentStep];
+
+                if (!currentStep) {
+                    throw new ConflictException(
+                        'No pending approval step found',
+                    );
+                }
+
+                if (currentStep.approverRole !== user.role.name) {
+                    throw new ForbiddenException(
+                        'It is not your turn to approve this request',
+                    );
+                }
+
+                const deal = await this.dealModel
+                    .findById(request.dealId)
+                    .session(session);
+
+                if (!deal) {
+                    throw new NotFoundException('Deal not found');
+                }
+
+                const history = new this.historyModel({
+                    dealId: request.dealId,
+                    approvalRequestId: request._id,
+                    step: currentStep.step,
+                    approverRole: currentStep.approverRole,
+                    approverId: user.id,
+                    action: dto.action,
+                    remarks: dto.remarks,
+                });
+
+                await history.save({ session });
+
+                if (dto.action === 'rejected') {
+                    request.status = 'rejected';
+
+                    request.approvalChain = [];
+
+                    deal.status = DealStatus.OPEN;
+
+                    await request.save({ session });
+                    await deal.save({ session });
+
+                    return {
+                        message: 'Discount request rejected',
+                        request,
+                    };
+                }
+
+                request.approvalChain[request.currentStep].status =
+                    'approved';
+
+                request.currentStep += 1;
+
+                // 9. Check whether all approval steps are completed
+                if (
+                    request.currentStep >= request.approvalChain.length
+                ) {
+                    request.status = 'approved';
+
+                    deal.status = DealStatus.WON;
+
+                    await deal.save({ session });
+                }
+
+                await request.save({ session });
+
+                return {
+                    message:
+                        request.status === 'approved'
+                            ? 'Discount fully approved'
+                            : 'Approval completed. Waiting for next approver',
+
+                    request,
+                };
+            });
+
+            return result;
+
+        } finally {
+            await session.endSession();
         }
-
-        if (request.requestedBy.toString() === user.id) {
-            throw new ForbiddenException(
-                'You cannot approve your own request',
-            );
-        }
-
-        const currentStep =
-            request.approvalChain[request.currentStep];
-
-        if (!currentStep) {
-            throw new ConflictException(
-                'No pending approval step found',
-            );
-        }
-
-
-        if (currentStep.approverRole !== user.role.name) {
-            throw new ForbiddenException(
-                'It is not your turn to approve this request',
-            );
-        }
-
-        const deal = await this.dealModel.findById(
-            request.dealId,
-        );
-
-        if (!deal) {
-            throw new NotFoundException('Deal not found');
-        }
-
-        await this.historyModel.create({
-            dealId: request.dealId,
-            approvalRequestId: request._id,
-            step: currentStep.step,
-            approverRole: currentStep.approverRole,
-            approverId: user.id,
-            action: dto.action,
-            remarks: dto.remarks,
-        });
-
-        if (dto.action === 'rejected') {
-            request.status = 'rejected';
-
-            // Clear the pending approval chain
-            request.approvalChain = [];
-
-            await request.save();
-
-            deal.status = DealStatus.OPEN;
-            await deal.save();
-
-            return {
-                message: 'Discount request rejected',
-                request,
-            };
-        }
-
-        request.approvalChain[request.currentStep].status =
-            'approved';
-
-        request.currentStep += 1;
-
-        if (
-            request.currentStep >= request.approvalChain.length
-        ) {
-            request.status = 'approved';
-
-            deal.status = DealStatus.WON;
-
-            await deal.save();
-        }
-
-        await request.save();
-
-        return {
-            message:
-                request.status === 'approved'
-                    ? 'Discount fully approved'
-                    : 'Approval completed. Waiting for next approver',
-
-            request,
-        };
     }
 
 
