@@ -16,6 +16,9 @@ import { Deal, DealDocument } from '../deals/schemas/deal.schema.js';
 import { ForbiddenException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import type { AuthenticatedUser } from '../deals/interfaces/authenticatedUser.js';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
+
 
 type BillPortStatus = 'SENT' | 'VIEWED' | 'PAID' | 'FAILED';
 
@@ -29,8 +32,11 @@ export class InvoicesService {
         @InjectConnection()
         private readonly connection: Connection,
         @InjectModel(Deal.name)
-        private readonly dealModel: Model<DealDocument>
+        private readonly dealModel: Model<DealDocument>,
+        @InjectQueue('invoice')
+        private readonly invoiceQueue: Queue
     ) { }
+
 
     async updateStatusFromWebhook(
         externalId: string,
@@ -44,23 +50,35 @@ export class InvoicesService {
             );
         }
 
-        const invoiceStatus = status.toLowerCase();
+        console.log('Invoice before webhook:', {
+            id: invoice._id.toString(),
+            status: invoice.status,
+            balanceUpdated: invoice.balanceUpdated,
+            amount: invoice.amount,
+        });
 
         if (status !== 'PAID') {
-            await this.invoiceModel.updateOne(
+            const result = await this.invoiceModel.updateOne(
                 {
-                    externalId,
+                    _id: invoice._id,
                     balanceUpdated: false,
                 },
                 {
-                    $set: { status: invoiceStatus },
+                    $set: {
+                        status: status.toLowerCase(),
+                    },
                 },
             );
+
+            console.log('Invoice status update result:', {
+                matchedCount: result.matchedCount,
+                modifiedCount: result.modifiedCount,
+            });
 
             return;
         }
 
-        // Update invoice and customer balance in one transaction.
+        // PAID: update invoice and customer balance together.
         const session = await this.connection.startSession();
 
         try {
@@ -68,7 +86,7 @@ export class InvoicesService {
                 const updatedInvoice =
                     await this.invoiceModel.findOneAndUpdate(
                         {
-                            externalId,
+                            _id: invoice._id,
                             balanceUpdated: false,
                         },
                         {
@@ -78,18 +96,17 @@ export class InvoicesService {
                             },
                         },
                         {
-                            new: true,
+                            returnDocument: 'after',
                             session,
                         },
                     );
 
-                // Already processed: do not deduct again.
-
                 if (!updatedInvoice) {
+                    console.log('Invoice already paid:', externalId);
                     return;
                 }
 
-                await this.customerModel.updateOne(
+                const customerResult = await this.customerModel.updateOne(
                     {
                         _id: updatedInvoice.customerId,
                     },
@@ -100,11 +117,21 @@ export class InvoicesService {
                     },
                     { session },
                 );
+
+                if (customerResult.matchedCount === 0) {
+                    throw new NotFoundException('Customer not found');
+                }
+
+                console.log('Customer balance updated:', {
+                    customerId: updatedInvoice.customerId.toString(),
+                    amountDeducted: updatedInvoice.amount,
+                });
             });
         } finally {
             await session.endSession();
         }
     }
+
 
     async createLocalInvoice(
         dealId: string,
@@ -150,6 +177,23 @@ export class InvoicesService {
             status: 'pending',
             balanceUpdated: false,
         });
+
+        await this.invoiceQueue.add(
+            'send-to-billport',
+            {
+                invoiceId: invoice._id.toString(),
+            },
+            {
+                jobId: invoice._id.toString(),
+                attempts: 5,
+                backoff: {
+                    type: 'exponential',
+                    delay: 1000,
+                },
+                removeOnComplete: true,
+                removeOnFail: false,
+            },
+        );
 
         return invoice;
     }

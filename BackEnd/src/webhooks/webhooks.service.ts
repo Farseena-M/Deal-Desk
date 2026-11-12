@@ -1,17 +1,15 @@
-import {
-    Injectable,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model } from 'mongoose';
+import type { Model } from 'mongoose';
 import * as crypto from 'crypto';
 import {
     WebhookEvent,
     WebhookEventDocument,
 } from './schemas/webhook-event.schema.js';
+
 import { BillPortWebhookPayload } from './interfaces/BillPortWebhookPayload.js';
 import { InvoicesService } from '../invoices/invoices.service.js';
-
 
 @Injectable()
 export class WebhooksService {
@@ -52,23 +50,38 @@ export class WebhooksService {
     async processWebhook(
         payload: BillPortWebhookPayload,
     ): Promise<void> {
-        try {
-            // Ignore duplicate event IDs.
-            const existingEvent = await this.webhookEventModel.findOne({
-                eventId: payload.eventId,
-            });
+        let savedEvent: WebhookEventDocument;
 
-            if (existingEvent) {
-                console.log('Duplicate webhook ignored:', payload.eventId);
+        // 1. Save the event FIRST.
+        // The unique eventId index prevents simultaneous duplicates.
+        try {
+            savedEvent = await this.webhookEventModel.create({
+                eventId: payload.eventId,
+                externalId: payload.externalId,
+                status: payload.status,
+                sequence: payload.sequence,
+                occurredAt: new Date(payload.occurredAt),
+            });
+        } catch (error: any) {
+            if (error?.code === 11000) {
+                console.log(
+                    'Duplicate webhook ignored:',
+                    payload.eventId,
+                );
                 return;
             }
 
-            // Find the latest successfully stored sequence for this invoice.
+            throw error;
+        }
+
+        try {
             const latestEvent = await this.webhookEventModel
-                .findOne({ externalId: payload.externalId })
+                .findOne({
+                    externalId: payload.externalId,
+                    _id: { $ne: savedEvent._id },
+                })
                 .sort({ sequence: -1 });
 
-            // Ignore stale or out-of-order events.
             if (
                 latestEvent &&
                 payload.sequence <= latestEvent.sequence
@@ -82,41 +95,24 @@ export class WebhooksService {
                 return;
             }
 
-            // 1. Update the actual invoice.
             await this.invoicesService.updateStatusFromWebhook(
                 payload.externalId,
                 payload.status,
             );
 
-            // 2. Save the webhook event after successful invoice update.
-            await this.webhookEventModel.create({
-                eventId: payload.eventId,
-                externalId: payload.externalId,
-                status: payload.status,
-                sequence: payload.sequence,
-                occurredAt: new Date(payload.occurredAt),
+            console.log(
+                'Webhook processed:',
+                payload.status,
+                payload.externalId,
+                'Sequence:',
+                payload.sequence,
+                'Event:',
+                payload.eventId,
+            );
+        } catch (error) {
+            await this.webhookEventModel.deleteOne({
+                _id: savedEvent._id,
             });
-
-            console.log(
-                'Webhook processed:',
-                payload.status,
-                payload.externalId,
-                'Sequence:',
-                payload.sequence,
-            );
-
-            console.log(
-                'Webhook processed:',
-                payload.status,
-                payload.externalId,
-                'Sequence:',
-                payload.sequence,
-            );
-        } catch (error: any) {
-            if (error?.code === 11000) {
-                console.log('Duplicate webhook ignored:', payload.eventId);
-                return;
-            }
 
             throw error;
         }
