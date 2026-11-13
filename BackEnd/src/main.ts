@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableCors({
-    origin: 'http://localhost:5173',
+    origin: 'https://deal-desk-woad-omega.vercel.app',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
