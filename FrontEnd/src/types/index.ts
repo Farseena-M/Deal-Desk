@@ -25,8 +25,20 @@ export interface Deal {
     quantity: number;
     discountPercent: number;
     status: string;
-    customerId?: { name?: string } | string;
-    productId?: { name?: string } | string;
+
+    customerId?: {
+        _id: string;
+        name: string;
+        email?: string;
+    } | string;
+
+    productId?: {
+        _id: string;
+        name: string;
+        sku?: string;
+        price?: number;
+    } | string;
+
     createdAt?: string;
 }
 

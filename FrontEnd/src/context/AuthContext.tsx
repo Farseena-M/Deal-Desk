@@ -1,3 +1,4 @@
+
 import {
   createContext,
   useContext,
@@ -5,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+
 import { api, unwrap } from '../lib/api';
 import type { User } from '../types';
 
@@ -12,6 +14,7 @@ interface AuthValue {
   user: User | null;
   token: string | null;
   loading: boolean;
+  can: (permission: string) => boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -39,6 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token,
       loading: false,
 
+      // Check user permission
+      can(permission: string) {
+        return user?.role?.permissions?.includes(permission) ?? false;
+      },
+
       // Login
       async login(email, password) {
         const response = await api.post('/auth/login', {
@@ -58,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         localStorage.setItem('dealdesk_token', result.accessToken);
+
         localStorage.setItem(
           'dealdesk_user',
           JSON.stringify(result.user)
